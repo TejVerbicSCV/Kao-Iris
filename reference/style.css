@@ -1,0 +1,123 @@
+/* general iz projekta */
+body {
+    font-family: Arial, sans-serif;
+    margin: 0;
+    padding: 0;
+    background-color: #f4f4f4;
+    display: flex;
+    height: 100vh;
+}
+
+.container {
+    display: flex;
+    width: 100%;
+}
+
+
+
+
+/* sidebar na strani cel */
+.sidebar {
+    width: 250px;
+    background-color: #007bff;
+    color: white;
+    padding: 20px;
+    height: 100vh;
+    position: fixed;
+}
+
+.sidebar h2 {
+    text-align: center;
+    margin-bottom: 60px;
+}
+
+.sidebar ul {
+    list-style: none;
+    padding: 0;
+    
+}
+
+.sidebar ul li {
+    margin: 15px 0;
+}
+
+.sidebar ul li a {
+    color: white;
+    text-decoration: none;
+    font-weight: bold;
+    display: block;
+    padding: 10px;
+    border-radius: 5px;
+}
+
+.sidebar ul li a:hover {
+    background-color: #0056b3;
+}
+
+
+
+/* main vse */
+.content {
+    margin-left: 270px;
+    padding: 20px;
+    flex: 1;
+}
+
+.user-info {
+    
+    padding: 10px 20px;
+    border-radius: 5px;
+    margin-bottom: 20px;
+    text-align: right;
+}
+
+.user-info a {
+    color: #007bff;
+    text-decoration: none;
+}
+
+.user-info a:hover {
+    text-decoration: underline;
+}
+
+.hero {
+    background-color: #0056b3;
+    color: white;
+    padding: 40px;
+    text-align: center;
+    border-radius: 10px;
+    margin-bottom: 20px;
+    margin-left: 20px;
+    
+}
+
+.user-details, .doctor-details {
+    background: white;
+    padding: 20px;
+    border-radius: 8px;
+    box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+    margin-bottom: 20px;
+    margin-left: 20px;
+}
+
+.user-details h2, .doctor-details h2 {
+    margin-top: 0;
+    color: #0056b3;
+    border-bottom: 1px solid #eee;
+    padding-bottom: 10px;
+}
+
+.details-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 30px; 
+    margin-top: 20px;
+}
+
+.details-grid  div {
+    flex: 1 1 300px; 
+}
+.details-grid h3 {
+    color: #007bff;
+    margin-top: 0;
+}
