@@ -35,25 +35,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 
 // Get all conversations for this doctor with latest message
 $sql = "WITH LatestMessages AS (
-            SELECT p.*, 
-                   CASE 
-                       WHEN p.uporabnik_id = ? THEN u.ime
-                       ELSE d.ime
-                   END as sender_ime,
-                   CASE 
-                       WHEN p.uporabnik_id = ? THEN u.priimek
-                       ELSE d.priimek
-                   END as sender_priimek,
-                   u.ime as pacient_ime,
-                   u.priimek as pacient_priimek,
-                   ROW_NUMBER() OVER (PARTITION BY p.zadeva ORDER BY p.datum_poslano DESC) as rn
-            FROM pogovori p 
-            JOIN uporabniki u ON p.uporabnik_id = u.id 
-            JOIN uporabniki d ON p.zdravnik_id = d.id
-            WHERE p.zdravnik_id = ?
-        )
-        SELECT * FROM LatestMessages WHERE rn = 1
-        ORDER BY datum_poslano DESC";
+    SELECT p.*, 
+           CASE 
+               WHEN p.uporabnik_id = ? THEN u.ime
+               ELSE d.ime
+           END as sender_ime,
+           CASE 
+               WHEN p.uporabnik_id = ? THEN u.priimek
+               ELSE d.priimek
+           END as sender_priimek,
+           u.ime as pacient_ime,
+           u.priimek as pacient_priimek,
+           ROW_NUMBER() OVER (PARTITION BY p.zadeva ORDER BY p.datum_poslano DESC) as rn
+    FROM pogovori p 
+    JOIN uporabniki u ON p.uporabnik_id = u.id 
+    JOIN uporabniki d ON p.zdravnik_id = d.id
+    WHERE p.zdravnik_id = ?
+)
+SELECT * FROM LatestMessages WHERE rn = 1
+ORDER BY datum_poslano DESC";
 $stmt = $conn->prepare($sql);
 $stmt->bind_param("iii", $doctor_id, $doctor_id, $doctor_id);
 $stmt->execute();
@@ -65,6 +65,22 @@ $stmt = $conn->prepare($sql);
 $stmt->bind_param("i", $doctor_id);
 $stmt->execute();
 $patients = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+
+// Handle modal state
+$show_modal = isset($_GET['show_modal']) && $_GET['show_modal'] === 'true';
+
+// Handle search
+$search_text = isset($_GET['search']) ? strtolower($_GET['search']) : '';
+$filtered_conversations = $conversations;
+if (!empty($search_text)) {
+    $filtered_conversations = array_filter($conversations, function($conversation) use ($search_text) {
+        $text = strtolower($conversation['zadeva'] . ' ' . 
+                          $conversation['pacient_ime'] . ' ' . 
+                          $conversation['pacient_priimek'] . ' ' . 
+                          $conversation['sporocilo']);
+        return strpos($text, $search_text) !== false;
+    });
+}
 ?>
 <!DOCTYPE html>
 <html lang="sl">
@@ -304,15 +320,55 @@ $patients = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
                 <p>Pregled in upravljanje s pogovori s pacientov</p>
             </section>
             
-            <button class="btn" onclick="openModal()">Novo sporočilo</button>
-            
-            <div class="search-box">
-                <input type="text" id="searchInput" placeholder="Išči pogovore po zadevi ali pacientu...">
-                <button onclick="searchConversations()">Išči</button>
+            <?php if ($show_modal): ?>
+                <div id="messageModal" class="modal" style="display: block;">
+            <?php else: ?>
+                <div id="messageModal" class="modal" style="display: none;">
+            <?php endif; ?>
+                <div class="modal-content">
+                    <h2>Novo sporočilo</h2>
+                    <form method="POST" action="pogovori.php">
+                        <input type="hidden" name="action" value="send_message">
+                        
+                        <div class="form-group">
+                            <label for="patient_id">Pacient:</label>
+                            <select id="patient_id" name="patient_id" required>
+                                <option value="">Izberite pacienta</option>
+                                <?php foreach ($patients as $patient): ?>
+                                    <option value="<?php echo $patient['id']; ?>">
+                                        <?php echo htmlspecialchars($patient['priimek'] . ' ' . $patient['ime']); ?>
+                                    </option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="zadeva">Zadeva:</label>
+                            <input type="text" id="zadeva" name="zadeva" required>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="sporocilo">Sporočilo:</label>
+                            <textarea id="sporocilo" name="sporocilo" required></textarea>
+                        </div>
+                        
+                        <div class="modal-buttons">
+                            <button type="button" class="btn btn-secondary" onclick="closeModal()">Prekliči</button>
+                            <button type="submit" class="btn">Pošlji</button>
+                        </div>
+                    </form>
+                </div>
             </div>
             
+            <form method="GET" action="" class="search-box">
+                <input type="text" name="search" value="<?php echo htmlspecialchars($search_text); ?>" placeholder="Išči pogovore po zadevi ali pacientu...">
+                <button type="submit">Išči</button>
+            </form>
+            
+            <a href="?show_modal=true" class="btn">Novo sporočilo</a>
+            
             <div class="conversation-list">
-                <?php foreach ($conversations as $conversation): ?>
+                <?php foreach ($filtered_conversations as $conversation): ?>
                 <div class="conversation-item <?php echo $conversation['prebrano'] ? '' : 'unread'; ?>" onclick="window.location.href='pogovor.php?id=<?php echo $conversation['id']; ?>'">
                     <div class="conversation-header">
                         <h3><?php echo htmlspecialchars($conversation['zadeva']); ?></h3>
@@ -333,43 +389,6 @@ $patients = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
         </main>
     </div>
     
-    <!-- Modal for sending new message -->
-    <div id="messageModal" class="modal">
-        <div class="modal-content">
-            <h2>Novo sporočilo</h2>
-            <form method="POST" action="pogovori.php">
-                <input type="hidden" name="action" value="send_message">
-                
-                <div class="form-group">
-                    <label for="patient_id">Pacient:</label>
-                    <select id="patient_id" name="patient_id" required>
-                        <option value="">Izberite pacienta</option>
-                        <?php foreach ($patients as $patient): ?>
-                            <option value="<?php echo $patient['id']; ?>">
-                                <?php echo htmlspecialchars($patient['priimek'] . ' ' . $patient['ime']); ?>
-                            </option>
-                        <?php endforeach; ?>
-                    </select>
-                </div>
-                
-                <div class="form-group">
-                    <label for="zadeva">Zadeva:</label>
-                    <input type="text" id="zadeva" name="zadeva" required>
-                </div>
-                
-                <div class="form-group">
-                    <label for="sporocilo">Sporočilo:</label>
-                    <textarea id="sporocilo" name="sporocilo" required></textarea>
-                </div>
-                
-                <div class="modal-buttons">
-                    <button type="button" class="btn btn-secondary" onclick="closeModal()">Prekliči</button>
-                    <button type="submit" class="btn">Pošlji</button>
-                </div>
-            </form>
-        </div>
-    </div>
-    
     <script>
         function openModal() {
             document.getElementById('messageModal').style.display = 'block';
@@ -377,24 +396,6 @@ $patients = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
         
         function closeModal() {
             document.getElementById('messageModal').style.display = 'none';
-        }
-        
-        function searchConversations() {
-            const searchText = document.getElementById('searchInput').value.toLowerCase();
-            const conversations = document.querySelectorAll('.conversation-item');
-            
-            conversations.forEach(conversation => {
-                const text = conversation.textContent.toLowerCase();
-                conversation.style.display = text.includes(searchText) ? 'flex' : 'none';
-            });
-        }
-        
-        // Close modal when clicking outside
-        window.onclick = function(event) {
-            const modal = document.getElementById('messageModal');
-            if (event.target == modal) {
-                closeModal();
-            }
         }
     </script>
     <?php include '../footer.php'; ?>

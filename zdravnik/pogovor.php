@@ -14,29 +14,21 @@ if (!isset($_GET['id'])) {
 
 $conversation_id = $_GET['id'];
 $doctor_id = $_SESSION['user_id'];
+$doctor_name = $_SESSION['user_name'] ?? 'Zdravnik';
 
 // Get all messages for this conversation
 $sql = "SELECT p.*, 
-        CASE 
-            WHEN p.uporabnik_id = ? THEN u.ime
-            ELSE d.ime
-        END as sender_ime,
-        CASE 
-            WHEN p.uporabnik_id = ? THEN u.priimek
-            ELSE d.priimek
-        END as sender_priimek,
-        CASE 
-            WHEN p.uporabnik_id = ? THEN 'pacient'
-            ELSE 'zdravnik'
-        END as sender_role
-        FROM pogovori p 
-        JOIN uporabniki u ON p.uporabnik_id = u.id 
-        JOIN uporabniki d ON p.zdravnik_id = d.id
+               s.ime AS sender_ime,
+               s.priimek AS sender_priimek,
+               v.naziv AS sender_role
+        FROM pogovori p
+        LEFT JOIN uporabniki s ON p.posiljatelj_id = s.id
+        LEFT JOIN vloge v ON s.vloga_id = v.id
         WHERE p.zadeva = (SELECT zadeva FROM pogovori WHERE id = ?) 
-        AND p.zdravnik_id = ?
+          AND p.zdravnik_id = ?
         ORDER BY p.datum_poslano ASC";
 $stmt = $conn->prepare($sql);
-$stmt->bind_param("iiiii", $doctor_id, $doctor_id, $doctor_id, $conversation_id, $doctor_id);
+$stmt->bind_param("ii", $conversation_id, $doctor_id);
 $stmt->execute();
 $messages = $stmt->get_result();
 
@@ -63,10 +55,10 @@ $stmt->execute();
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $reply = $_POST['reply'];
     if (!empty($reply)) {
-        $sql = "INSERT INTO pogovori (uporabnik_id, zdravnik_id, zadeva, sporocilo, datum_poslano, prebrano) 
-                VALUES (?, ?, ?, ?, NOW(), 0)";
+        $sql = "INSERT INTO pogovori (uporabnik_id, zdravnik_id, zadeva, sporocilo, datum_poslano, prebrano, posiljatelj_id) 
+                VALUES (?, ?, ?, ?, NOW(), 0, ?)";
         $stmt = $conn->prepare($sql);
-        $stmt->bind_param("iiss", $pacient_id, $doctor_id, $subject, $reply);
+        $stmt->bind_param("iissi", $pacient_id, $doctor_id, $subject, $reply, $doctor_id);
         if ($stmt->execute()) {
             header("Location: pogovor.php?id=" . $conversation_id);
             exit();
@@ -94,18 +86,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             display: flex;
             flex-direction: column;
         }
-        
         .chat-header {
             padding: 1.5rem;
             border-bottom: 1px solid #eee;
             background-color: #f8f9fa;
         }
-        
-        .chat-header h2 {
-            color: #2c3e50;
-            margin-bottom: 0.5rem;
-        }
-        
         .chat-messages {
             flex: 1;
             overflow-y: auto;
@@ -114,7 +99,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             flex-direction: column;
             gap: 1rem;
         }
-        
         .message {
             max-width: 70%;
             padding: 1rem;
@@ -122,36 +106,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             position: relative;
             margin-bottom: 1rem;
         }
-        
-        .message-meta {
-            font-size: 0.8rem;
-            margin-top: 0.5rem;
-            opacity: 0.8;
-        }
-        
-        .message-sent .message-meta {
-            text-align: right;
-            color: rgba(255, 255, 255, 0.9);
-        }
-        
-        .message-received .message-meta {
-            text-align: left;
-            color: #666;
-        }
-
-        .sender-name {
-            font-weight: 500;
-        }
-
-        .sender-role {
-            font-style: italic;
-            opacity: 0.9;
-        }
-
-        .message-time {
-            opacity: 0.8;
-        }
-
         .message-sent {
             align-self: flex-end;
             background-color: #3498db;
@@ -159,7 +113,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             margin-left: auto;
             border-bottom-right-radius: 0;
         }
-        
         .message-received {
             align-self: flex-start;
             background-color: #f1f1f1;
@@ -167,17 +120,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             margin-right: auto;
             border-bottom-left-radius: 0;
         }
-        
+        .message-meta {
+            font-size: 0.8rem;
+            margin-top: 0.5rem;
+            opacity: 0.8;
+        }
+        .sender-name {
+            font-weight: 500;
+        }
+        .sender-role {
+            font-style: italic;
+            opacity: 0.9;
+        }
+        .message-time {
+            opacity: 0.8;
+        }
         .reply-form {
             padding: 1.5rem;
             border-top: 1px solid #eee;
             background-color: #f8f9fa;
         }
-        
         .form-group {
             margin-bottom: 1rem;
         }
-        
         .form-group textarea {
             width: 100%;
             padding: 0.75rem;
@@ -187,12 +152,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             min-height: 80px;
             resize: none;
         }
-        
         .form-group textarea:focus {
             outline: none;
             border-color: #3498db;
         }
-        
         .btn {
             display: inline-block;
             padding: 0.75rem 1.5rem;
@@ -205,106 +168,98 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             transition: background-color 0.3s;
             text-decoration: none;
         }
-        
         .btn:hover {
             background-color: #2980b9;
         }
-        
         .btn-secondary {
             background-color: #95a5a6;
         }
-        
         .btn-secondary:hover {
             background-color: #7f8c8d;
         }
-        
         .button-group {
             display: flex;
             gap: 1rem;
             margin-top: 1rem;
         }
-        
         .error-message {
             color: #e74c3c;
             margin-bottom: 1rem;
             text-align: center;
         }
-
         .message-content {
             word-wrap: break-word;
         }
     </style>
 </head>
 <body>
-    <div class="container">
-        <aside class="sidebar">
-            <h2>Zdravnik Panel</h2>
-            <nav>
-                <ul>
-                    <li><a href="index.php">Dashboard</a></li>
-                    <li><a href="pacienti.php">Pacienti</a></li>
-                    <li><a href="recepti.php">Recepti</a></li>
-                    <li><a href="napotnice.php">Napotnice</a></li>
-                    <li><a href="pogovori.php">Pogovori</a></li>
-                    <li><a href="bolniske.php">Bolniške</a></li>
-                    <li><a href="../seja_izbris.php">Odjava</a></li>
-                </ul>
-            </nav>
-        </aside>
-        <main class="content">
-            <section class="hero">
-                <div class="user-info">
-                    <p>Prijavljeni ste kot: <strong><?php echo htmlspecialchars($_SESSION['user_name']); ?></strong> (Zdravnik) | <a href="../seja_izbris.php">Odjava</a></p>
-                </div>
-                <h2>Pogovor</h2>
-                <p>Pregled pogovora s pacientom <strong><?php echo htmlspecialchars($conversation_info['pacient_ime'] . ' ' . $conversation_info['pacient_priimek']); ?></strong>.</p>
-            </section>
-            
-            <?php if (isset($error)): ?>
-                <div class="error-message">
-                    <p><?php echo htmlspecialchars($error); ?></p>
-                </div>
-            <?php endif; ?>
-            
-            <div class="chat-container">
-                <div class="chat-header">
-                    <h2><?php echo htmlspecialchars($subject); ?></h2>
-                </div>
-                
-                <div class="chat-messages">
-                    <?php while ($message = $messages->fetch_assoc()): ?>
-                        <div class="message <?php echo $message['zdravnik_id'] == $doctor_id && $message['uporabnik_id'] == $doctor_id ? 'message-sent' : 'message-received'; ?>">
-                            <div class="message-content">
-                                <?php echo nl2br(htmlspecialchars($message['sporocilo'])); ?>
-                            </div>
-                            <div class="message-meta">
-                                <span class="sender-name"><?php echo htmlspecialchars($message['sender_ime'] . ' ' . $message['sender_priimek']); ?></span>
-                                <span class="sender-role">(<?php echo $message['sender_role'] === 'zdravnik' ? 'Zdravnik' : 'Pacient'; ?>)</span> • 
-                                <span class="message-time"><?php echo date('d.m.Y H:i', strtotime($message['datum_poslano'])); ?></span>
-                            </div>
-                        </div>
-                    <?php endwhile; ?>
-                </div>
-                
-                <form method="POST" action="" class="reply-form">
-                    <div class="form-group">
-                        <textarea id="reply" name="reply" placeholder="Vnesite vaše sporočilo..." required></textarea>
-                    </div>
-                    
-                    <div class="button-group">
-                        <button type="submit" class="btn">Pošlji</button>
-                        <a href="pogovori.php" class="btn btn-secondary">Nazaj na seznam</a>
-                    </div>
-                </form>
+<div class="container">
+    <aside class="sidebar">
+        <h2>Zdravnik Panel</h2>
+        <nav>
+            <ul>
+                <li><a href="index.php">Dashboard</a></li>
+                <li><a href="pacienti.php">Pacienti</a></li>
+                <li><a href="recepti.php">Recepti</a></li>
+                <li><a href="napotnice.php">Napotnice</a></li>
+                <li><a href="pogovori.php">Pogovori</a></li>
+                <li><a href="bolniske.php">Bolniške</a></li>
+                <li><a href="../seja_izbris.php">Odjava</a></li>
+            </ul>
+        </nav>
+    </aside>
+    <main class="content">
+        <section class="hero">
+            <div class="user-info">
+                <p>Prijavljeni ste kot: <strong><?php echo htmlspecialchars($doctor_name); ?></strong> (Zdravnik) | <a href="../seja_izbris.php">Odjava</a></p>
             </div>
-        </main>
-    </div>
-    <?php include '../footer.php'; ?>
+            <h2>Pogovor</h2>
+            <p>Pregled pogovora s pacientom <strong><?php echo htmlspecialchars($conversation_info['pacient_ime'] . ' ' . $conversation_info['pacient_priimek']); ?></strong>.</p>
+        </section>
 
-    <script>
-        // Scroll to bottom of chat
-        const chatMessages = document.querySelector('.chat-messages');
-        chatMessages.scrollTop = chatMessages.scrollHeight;
-    </script>
+        <?php if (isset($error)): ?>
+            <div class="error-message">
+                <p><?php echo htmlspecialchars($error); ?></p>
+            </div>
+        <?php endif; ?>
+
+        <div class="chat-container">
+            <div class="chat-header">
+                <h2><?php echo htmlspecialchars($subject); ?></h2>
+            </div>
+
+            <div class="chat-messages">
+                <?php while ($message = $messages->fetch_assoc()): ?>
+                    <div class="message <?php echo $message['posiljatelj_id'] == $doctor_id ? 'message-sent' : 'message-received'; ?>">
+                        <div class="message-content">
+                            <?php echo nl2br(htmlspecialchars($message['sporocilo'])); ?>
+                        </div>
+                        <div class="message-meta">
+                            <span class="sender-name"><?php echo htmlspecialchars($message['sender_ime'] ?? 'Neznan'); ?> <?php echo htmlspecialchars($message['sender_priimek'] ?? ''); ?></span>
+                            <span class="sender-role">(<?php echo ucfirst(htmlspecialchars($message['sender_role'] ?? 'neznano')); ?>)</span> • 
+                            <span class="message-time"><?php echo date('d.m.Y H:i', strtotime($message['datum_poslano'])); ?></span>
+                        </div>
+                    </div>
+                <?php endwhile; ?>
+            </div>
+
+            <form method="POST" action="" class="reply-form">
+                <div class="form-group">
+                    <textarea id="reply" name="reply" placeholder="Vnesite vaše sporočilo..." required></textarea>
+                </div>
+
+                <div class="button-group">
+                    <button type="submit" class="btn">Pošlji</button>
+                    <a href="pogovori.php" class="btn btn-secondary">Nazaj na seznam</a>
+                </div>
+            </form>
+        </div>
+    </main>
+</div>
+<?php include '../footer.php'; ?>
+<script>
+    const chatMessages = document.querySelector('.chat-messages');
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+</script>
 </body>
-</html> 
+</html>

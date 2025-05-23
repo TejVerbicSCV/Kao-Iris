@@ -15,7 +15,7 @@ if (!isset($_GET['id'])) {
 $conversation_id = $_GET['id'];
 $user_id = $_SESSION['user_id'];
 
-// Get all messages for this conversation
+// Get conversation details
 $sql = "SELECT p.*, 
         CASE 
             WHEN p.uporabnik_id = ? THEN u.ime
@@ -29,31 +29,44 @@ $sql = "SELECT p.*,
             WHEN p.uporabnik_id = ? THEN 'pacient'
             ELSE 'zdravnik'
         END as sender_role,
-        p.uporabnik_id as sender_id
+        d.ime as zdravnik_ime,
+        d.priimek as zdravnik_priimek
         FROM pogovori p 
         JOIN uporabniki u ON p.uporabnik_id = u.id 
         JOIN uporabniki d ON p.zdravnik_id = d.id
+        WHERE p.id = ?";
+$stmt = $conn->prepare($sql);
+$stmt->bind_param("iiii", $user_id, $user_id, $user_id, $conversation_id);
+$stmt->execute();
+$conversation = $stmt->get_result()->fetch_assoc();
+
+// Get all messages for this conversation
+$sql = "SELECT p.*, 
+               s.ime AS sender_ime,
+               s.priimek AS sender_priimek,
+               v.naziv AS sender_role
+        FROM pogovori p
+        LEFT JOIN uporabniki s ON p.posiljatelj_id = s.id
+        LEFT JOIN vloge v ON s.vloga_id = v.id
         WHERE p.zadeva = (SELECT zadeva FROM pogovori WHERE id = ?) 
-        AND (p.uporabnik_id = ? OR p.zdravnik_id = ?)
+          AND p.uporabnik_id = ?
         ORDER BY p.datum_poslano ASC";
 $stmt = $conn->prepare($sql);
-$stmt->bind_param("iiiiii", $user_id, $user_id, $user_id, $conversation_id, $user_id, $user_id);
+$stmt->bind_param("ii", $conversation_id, $user_id);
 $stmt->execute();
 $messages = $stmt->get_result();
 
-// Get conversation subject
-$sql = "SELECT zadeva FROM pogovori WHERE id = ?";
+// Get conversation subject and doctor info
+$sql = "SELECT p.zadeva, d.ime as zdravnik_ime, d.priimek as zdravnik_priimek, d.id as zdravnik_id 
+        FROM pogovori p 
+        JOIN uporabniki d ON p.zdravnik_id = d.id 
+        WHERE p.id = ?";
 $stmt = $conn->prepare($sql);
 $stmt->bind_param("i", $conversation_id);
 $stmt->execute();
-$subject = $stmt->get_result()->fetch_assoc()['zadeva'];
-
-// Get zdravnik_id for this conversation
-$sql = "SELECT zdravnik_id FROM pogovori WHERE zadeva = ? LIMIT 1";
-$stmt = $conn->prepare($sql);
-$stmt->bind_param("s", $subject);
-$stmt->execute();
-$zdravnik_id = $stmt->get_result()->fetch_assoc()['zdravnik_id'];
+$conversation_info = $stmt->get_result()->fetch_assoc();
+$subject = $conversation_info['zadeva'];
+$zdravnik_id = $conversation_info['zdravnik_id'];
 
 // Mark all messages as read
 $sql = "UPDATE pogovori SET prebrano = 1 
@@ -65,13 +78,11 @@ $stmt->execute();
 // Handle reply
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $reply = $_POST['reply'];
-    
     if (!empty($reply)) {
-        $sql = "INSERT INTO pogovori (uporabnik_id, zdravnik_id, zadeva, sporocilo, datum_poslano, prebrano) 
-                VALUES (?, ?, ?, ?, NOW(), 0)";
+        $sql = "INSERT INTO pogovori (uporabnik_id, zdravnik_id, zadeva, sporocilo, datum_poslano, prebrano, posiljatelj_id) 
+                VALUES (?, ?, ?, ?, NOW(), 0, ?)";
         $stmt = $conn->prepare($sql);
-        $stmt->bind_param("iiss", $user_id, $zdravnik_id, $subject, $reply);
-        
+        $stmt->bind_param("iissi", $user_id, $zdravnik_id, $subject, $reply, $user_id);
         if ($stmt->execute()) {
             header("Location: pogovor.php?id=" . $conversation_id);
             exit();
@@ -125,22 +136,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             padding: 1rem;
             border-radius: 8px;
             position: relative;
-        }
-        
-        .message-sent {
-            align-self: flex-end;
-            background-color: #3498db;
-            color: white;
-            margin-left: auto;
-            border-bottom-right-radius: 0;
-        }
-        
-        .message-received {
-            align-self: flex-start;
-            background-color: #f1f1f1;
-            color: #2c3e50;
-            margin-right: auto;
-            border-bottom-left-radius: 0;
+            margin-bottom: 1rem;
         }
         
         .message-meta {
@@ -170,6 +166,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         .message-time {
             opacity: 0.8;
+        }
+
+        .message-sent {
+            align-self: flex-end;
+            background-color: #3498db;
+            color: white;
+            margin-left: auto;
+            border-bottom-right-radius: 0;
+        }
+        
+        .message-received {
+            align-self: flex-start;
+            background-color: #f1f1f1;
+            color: #2c3e50;
+            margin-right: auto;
+            border-bottom-left-radius: 0;
         }
         
         .reply-form {
@@ -242,14 +254,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 <body>
     <div class="container">
         <aside class="sidebar">
-            <h2>Kao IRIS</h2>
+            <h2>Pacient Panel</h2>
             <nav>
                 <ul>
-                    <li><a href="index.php">Domov</a></li>
+                    <li><a href="index.php">Dashboard</a></li>
                     <li><a href="recepti.php">Recepti</a></li>
                     <li><a href="napotnice.php">Napotnice</a></li>
                     <li><a href="pogovori.php">Pogovori</a></li>
                     <li><a href="bolniske.php">Bolniške</a></li>
+                    <li><a href="seja_izbris.php">Odjava</a></li>
                 </ul>
             </nav>
         </aside>
@@ -257,10 +270,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         <main class="content">
             <section class="hero">
                 <div class="user-info">
-                    <p>Prijavljeni ste kot: <strong><?php echo htmlspecialchars($_SESSION['user_name']); ?></strong> | <a href="seja_izbris.php">Odjava</a></p>
+                    <p>Prijavljeni ste kot: <strong><?php echo htmlspecialchars($_SESSION['user_name']); ?></strong> (Pacient) | <a href="seja_izbris.php">Odjava</a></p>
                 </div>
                 <h2>Pogovor</h2>
-                <p>Pregled pogovora.</p>
+                <p>Pregled pogovora s zdravnikom <strong><?php echo htmlspecialchars($conversation['zdravnik_ime'] . ' ' . $conversation['zdravnik_priimek']); ?></strong>.</p>
             </section>
             
             <?php if (isset($error)): ?>
@@ -271,18 +284,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             
             <div class="chat-container">
                 <div class="chat-header">
-                    <h2><?php echo htmlspecialchars($subject); ?></h2>
+                    <h2><?php echo htmlspecialchars($conversation['zadeva']); ?></h2>
                 </div>
                 
                 <div class="chat-messages">
                     <?php while ($message = $messages->fetch_assoc()): ?>
-                        <div class="message <?php echo $message['sender_id'] == $user_id ? 'message-sent' : 'message-received'; ?>">
+                        <div class="message <?php echo $message['posiljatelj_id'] == $user_id ? 'message-sent' : 'message-received'; ?>">
                             <div class="message-content">
                                 <?php echo nl2br(htmlspecialchars($message['sporocilo'])); ?>
                             </div>
                             <div class="message-meta">
                                 <span class="sender-name"><?php echo htmlspecialchars($message['sender_ime'] . ' ' . $message['sender_priimek']); ?></span>
-                                <span class="sender-role">(<?php echo $message['sender_role'] === 'zdravnik' ? 'Zdravnik' : 'Pacient'; ?>)</span> • 
+                                <span class="sender-role">(<?php echo htmlspecialchars($message['sender_role']); ?>)</span> • 
                                 <span class="message-time"><?php echo date('d.m.Y H:i', strtotime($message['datum_poslano'])); ?></span>
                             </div>
                         </div>
@@ -310,4 +323,4 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         chatMessages.scrollTop = chatMessages.scrollHeight;
     </script>
 </body>
-</html>
+</html> 

@@ -10,22 +10,50 @@ include 'baza.php';
 // Get user's conversations grouped by subject
 $user_id = $_SESSION['user_id'];
 $sql = "WITH LatestMessages AS (
-    SELECT 
-        p.*,
-        z.ime as zdravnik_ime,
-        z.priimek as zdravnik_priimek,
-        ROW_NUMBER() OVER (PARTITION BY p.zadeva ORDER BY p.datum_poslano DESC) as rn
+    SELECT p.*, 
+           CASE 
+               WHEN p.uporabnik_id = ? THEN u.ime
+               ELSE d.ime
+           END as sender_ime,
+           CASE 
+               WHEN p.uporabnik_id = ? THEN u.priimek
+               ELSE d.priimek
+           END as sender_priimek,
+           d.ime as zdravnik_ime,
+           d.priimek as zdravnik_priimek,
+           CASE 
+               WHEN p.uporabnik_id = ? THEN 'pacient'
+               ELSE 'zdravnik'
+           END as sender_role,
+           ROW_NUMBER() OVER (PARTITION BY p.zadeva ORDER BY p.datum_poslano DESC) as rn
     FROM pogovori p 
-    LEFT JOIN uporabniki z ON p.zdravnik_id = z.id 
-    WHERE p.uporabnik_id = ?
+    JOIN uporabniki u ON p.uporabnik_id = u.id 
+    JOIN uporabniki d ON p.zdravnik_id = d.id
+    WHERE p.uporabnik_id = ? OR p.zdravnik_id = ?
 )
 SELECT * FROM LatestMessages WHERE rn = 1
 ORDER BY datum_poslano DESC";
 
 $stmt = $conn->prepare($sql);
-$stmt->bind_param("i", $user_id);
+$stmt->bind_param("iiiii", $user_id, $user_id, $user_id, $user_id, $user_id);
 $stmt->execute();
 $result = $stmt->get_result();
+
+// Handle modal state
+$show_modal = isset($_GET['show_modal']) && $_GET['show_modal'] === 'true';
+
+// Handle search
+$search_text = isset($_GET['search']) ? strtolower($_GET['search']) : '';
+$filtered_conversations = $result->fetch_all(MYSQLI_ASSOC);
+if (!empty($search_text)) {
+    $filtered_conversations = array_filter($filtered_conversations, function($conversation) use ($search_text) {
+        $text = strtolower($conversation['zadeva'] . ' ' . 
+                          $conversation['zdravnik_ime'] . ' ' . 
+                          $conversation['zdravnik_priimek'] . ' ' . 
+                          $conversation['sporocilo']);
+        return strpos($text, $search_text) !== false;
+    });
+}
 ?>
 <!DOCTYPE html>
 <html lang="sl">
@@ -46,6 +74,9 @@ $result = $stmt->get_result();
             border-bottom: 1px solid #eee;
             cursor: pointer;
             transition: background-color 0.3s;
+            text-decoration: none;
+            color: inherit;
+            display: block;
         }
         
         .conversation-item:hover {
@@ -134,19 +165,54 @@ $result = $stmt->get_result();
             gap: 1rem;
             margin-top: 0.5rem;
         }
+
+        .search-box {
+            margin: 2rem 0;
+            display: flex;
+            gap: 1rem;
+        }
+        
+        .search-box input {
+            flex: 1;
+            padding: 0.75rem;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 1rem;
+            transition: border-color 0.3s;
+        }
+        
+        .search-box input:focus {
+            outline: none;
+            border-color: #3498db;
+        }
+        
+        .search-box button {
+            padding: 0.75rem 1.5rem;
+            background-color: #3498db;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+        
+        .search-box button:hover {
+            background-color: #2980b9;
+        }
     </style>
 </head>
 <body>
     <div class="container">
         <aside class="sidebar">
-            <h2>Kao IRIS</h2>
+            <h2>Pacient Panel</h2>
             <nav>
                 <ul>
-                    <li><a href="index.php">Domov</a></li>
+                    <li><a href="index.php">Dashboard</a></li>
                     <li><a href="recepti.php">Recepti</a></li>
                     <li><a href="napotnice.php">Napotnice</a></li>
                     <li><a href="pogovori.php">Pogovori</a></li>
                     <li><a href="bolniske.php">Bolniške</a></li>
+                    <li><a href="seja_izbris.php">Odjava</a></li>
                 </ul>
             </nav>
         </aside>
@@ -154,7 +220,7 @@ $result = $stmt->get_result();
         <main class="content">
             <section class="hero">
                 <div class="user-info">
-                    <p>Prijavljeni ste kot: <strong><?php echo htmlspecialchars($_SESSION['user_name']); ?></strong> | <a href="seja_izbris.php">Odjava</a></p>
+                    <p>Prijavljeni ste kot: <strong><?php echo htmlspecialchars($_SESSION['user_name']); ?></strong> (Pacient) | <a href="seja_izbris.php">Odjava</a></p>
                 </div>
                 <h2>Vaši pogovori</h2>
                 <p>Pregled vseh vaših pogovorov z zdravniki.</p>
@@ -162,9 +228,14 @@ $result = $stmt->get_result();
             
             <a href="nov_pogovor.php" class="new-message-btn">Novo sporočilo</a>
             
+            <form method="GET" action="" class="search-box">
+                <input type="text" name="search" value="<?php echo htmlspecialchars($search_text); ?>" placeholder="Išči pogovore po zadevi ali zdravniku...">
+                <button type="submit">Išči</button>
+            </form>
+            
             <div class="conversation-list">
-                <?php if ($result->num_rows > 0): ?>
-                    <?php while ($conversation = $result->fetch_assoc()): ?>
+                <?php if (!empty($filtered_conversations)): ?>
+                    <?php foreach ($filtered_conversations as $conversation): ?>
                         <a href="pogovor.php?id=<?php echo $conversation['id']; ?>" class="conversation-item">
                             <div class="conversation-header">
                                 <div>
@@ -178,6 +249,7 @@ $result = $stmt->get_result();
                                         </span>
                                     </div>
                                     <div class="conversation-preview">
+                                        <span class="sender"><?php echo htmlspecialchars($conversation['sender_ime'] . ' ' . $conversation['sender_priimek']); ?> (<?php echo $conversation['sender_role'] === 'zdravnik' ? 'Zdravnik' : 'Pacient'; ?>):</span>
                                         <?php echo htmlspecialchars($conversation['sporocilo']); ?>
                                     </div>
                                 </div>
@@ -188,7 +260,7 @@ $result = $stmt->get_result();
                                 </div>
                             </div>
                         </a>
-                    <?php endwhile; ?>
+                    <?php endforeach; ?>
                 <?php else: ?>
                     <div class="no-conversations">
                         <p>Nimate še nobenega pogovora.</p>
