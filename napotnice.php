@@ -4,77 +4,7 @@
     <meta charset="UTF-8">
     <title>Portal IRIS - Napotnice</title>
     <link rel="stylesheet" href="style.css">
-    <style>
-        .referral-list {
-            background-color: white;
-            border-radius: 8px;
-            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-            margin-bottom: 2rem;
-        }
-        
-        .referral-item {
-            padding: 1.5rem;
-            border-bottom: 1px solid #eee;
-        }
-        
-        .referral-item:last-child {
-            border-bottom: none;
-        }
-        
-        .referral-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 1rem;
-        }
-        
-        .referral-date {
-            color: #666;
-            font-size: 0.9rem;
-        }
-        
-        .referral-doctor {
-            color: #2c3e50;
-            font-weight: 500;
-        }
-        
-        .referral-details {
-            margin-top: 1rem;
-        }
-        
-        .referral-details p {
-            margin-bottom: 0.5rem;
-        }
-        
-        .referral-status {
-            display: inline-block;
-            padding: 0.25rem 0.75rem;
-            border-radius: 4px;
-            font-size: 0.9rem;
-            font-weight: 500;
-        }
-        
-        .status-pending {
-            background-color: #fff3e0;
-            color: #ef6c00;
-        }
-        
-        .status-completed {
-            background-color: #e8f5e9;
-            color: #2e7d32;
-        }
-        
-        .status-cancelled {
-            background-color: #ffebee;
-            color: #c62828;
-        }
-        
-        .no-referrals {
-            text-align: center;
-            padding: 2rem;
-            color: #666;
-        }
-    </style>
+  
 </head>
 <body>
     <div class="container">
@@ -82,36 +12,31 @@
             <h2>Kao IRIS</h2>
             <nav>
                 <ul>
-                    <li><a href="index.php">Domov</a></li>
+                    <li><a href="index.php">Dashboard</a></li>
                     <li><a href="recepti.php">Recepti</a></li>
                     <li><a href="napotnice.php">Napotnice</a></li>
-                    <li><a href="pogovori.php">Pogovori</a></li>
                     <li><a href="bolniske.php">Bolniške</a></li>
                 </ul>
             </nav>
+            <div class="logout-link">
+                <a href="seja_izbris.php">Odjava</a>
+            </div>
         </aside>
         
         <main class="content">
             <?php
-            session_start();
-            if (!isset($_SESSION['user_id'])) {
-                header("Location: prijava.php");
-                exit();
-            }
-            
             include 'baza.php';
+            $user_id = checkUserAuth();
             
-            // Get user's referrals
-            $user_id = $_SESSION['user_id'];
             $sql = "SELECT n.*, z.ime as zdravnik_ime, z.priimek as zdravnik_priimek 
                     FROM napotnice n 
                     LEFT JOIN uporabniki z ON n.zdravnik_id = z.id 
                     WHERE n.uporabnik_id = ? 
                     ORDER BY n.datum_izdaje DESC";
-            $stmt = $conn->prepare($sql);
-            $stmt->bind_param("i", $user_id);
-            $stmt->execute();
-            $result = $stmt->get_result();
+            $stmt = mysqli_prepare($conn, $sql);
+            mysqli_stmt_bind_param($stmt, "i", $user_id);
+            mysqli_stmt_execute($stmt);
+            $result = mysqli_stmt_get_result($stmt);
             ?>
             
             <section class="hero">
@@ -123,8 +48,8 @@
             </section>
             
             <div class="referral-list">
-                <?php if ($result->num_rows > 0): ?>
-                    <?php while ($referral = $result->fetch_assoc()): ?>
+                <?php if (mysqli_num_rows($result) > 0): ?>
+                    <?php while ($referral = mysqli_fetch_assoc($result)): ?>
                         <div class="referral-item">
                             <div class="referral-header">
                                 <div>

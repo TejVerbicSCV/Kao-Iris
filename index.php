@@ -11,35 +11,31 @@
             <h2>Kao IRIS</h2>
             <nav>
                 <ul>
-                    <li><a href="index.php">Domov</a></li>
+                    <li><a href="index.php">Dashboard</a></li>
                     <li><a href="recepti.php">Recepti</a></li>
                     <li><a href="napotnice.php">Napotnice</a></li>
-                    <li><a href="pogovori.php">Pogovori</a></li>
                     <li><a href="bolniske.php">Bolniške</a></li>
                 </ul>
             </nav>
+            <div class="logout-link">
+                <a href="seja_izbris.php">Odjava</a>
+            </div>
         </aside>
         <main class="content">
             <?php
-            session_start();
-            if (!isset($_SESSION['user_id'])) {
-                header("Location: prijava.php");
-                exit();
-            }
-            
             include 'baza.php';
+            $user_id = checkUserAuth();
             
             // Get user info
-            $user_id = $_SESSION['user_id'];
             $sql = "SELECT u.*, z.ime as zdravnik_ime, z.priimek as zdravnik_priimek, z.specializacija, z.telefon as zdravnik_telefon 
                     FROM uporabniki u 
                     LEFT JOIN uporabniki z ON u.zdravnik_id = z.id 
                     WHERE u.id = ?";
-            $stmt = $conn->prepare($sql);
-            $stmt->bind_param("i", $user_id);
-            $stmt->execute();
-            $result = $stmt->get_result();
-            $user = $result->fetch_assoc();
+            $stmt = mysqli_prepare($conn, $sql);
+            mysqli_stmt_bind_param($stmt, "i", $user_id);
+            mysqli_stmt_execute($stmt);
+            $result = mysqli_stmt_get_result($stmt);
+            $user = mysqli_fetch_assoc($result);
             ?>
             
             <section class="hero">
@@ -58,12 +54,7 @@
                         <p><strong>Ime in priimek:</strong> <?php echo htmlspecialchars($user['ime'] . ' ' . $user['priimek']); ?></p>
                         <p><strong>E-pošta:</strong> <?php echo htmlspecialchars($user['email']); ?></p>
                         <p><strong>Telefon:</strong> <?php echo htmlspecialchars($user['telefon']); ?></p>
-                    </div>
-                    <div>
-                        <h3>Kontaktni podatki</h3>
                         <p><strong>Naslov:</strong> <?php echo htmlspecialchars($user['naslov'] ?? 'Ni podatka'); ?></p>
-                        <p><strong>Telefon:</strong> <?php echo htmlspecialchars($user['telefon'] ?? 'Ni podatka'); ?></p>
-                        <p><strong>E-pošta:</strong> <?php echo htmlspecialchars($user['email']); ?></p>
                     </div>
                 </div>
             </section>

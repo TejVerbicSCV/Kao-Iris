@@ -1,74 +1,86 @@
 <?php
 session_start();
-if (!isset($_SESSION['user_id']) || $_SESSION['user_role'] !== 'zdravnik') {
-    header("Location: ../prijava.php");
-    exit();
-}
-
 include '../baza.php';
+$doctor_id = checkUserAuth('zdravnik');
 
-$doctor_id = $_SESSION['user_id'];
-
-// Get doctor info
 $sql = "SELECT * FROM uporabniki WHERE id = ? AND vloga_id = 2";
-$stmt = $conn->prepare($sql);
-$stmt->bind_param("i", $doctor_id);
-$stmt->execute();
-$doctor = $stmt->get_result()->fetch_assoc();
+$stmt = mysqli_prepare($conn, $sql);
+mysqli_stmt_bind_param($stmt, "i", $doctor_id);
+mysqli_stmt_execute($stmt);
+$result = mysqli_stmt_get_result($stmt);
+$doctor = mysqli_fetch_assoc($result);
 
-// Handle referral creation
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'create') {
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['create_referral'])) {
     $patient_id = $_POST['patient_id'];
-    $specializacija = $_POST['specializacija'];
+    $specialist = $_POST['specialist'];
     $ustanova = $_POST['ustanova'];
     $zadeva = $_POST['zadeva'];
-    $razlog = $_POST['razlog'];
+    $reason = $_POST['reason'];
     $nujnost = $_POST['nujnost'];
-    $datum_izdaje = date('Y-m-d');
     $datum_pregleda = $_POST['datum_pregleda'];
-    $status = 'pending';
+    $status = $_POST['status'];
+    $notes = $_POST['notes'];
     
-    $sql = "INSERT INTO napotnice (uporabnik_id, zdravnik_id, specializacija, ustanova, zadeva, razlog, nujnost, datum_izdaje, datum_pregleda, status) 
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
-    $stmt = $conn->prepare($sql);
-    $stmt->bind_param("iissssssss", $patient_id, $doctor_id, $specializacija, $ustanova, $zadeva, $razlog, $nujnost, $datum_izdaje, $datum_pregleda, $status);
-    $stmt->execute();
+    $stmt = mysqli_prepare($conn, "INSERT INTO napotnice (uporabnik_id, zdravnik_id, specializacija, ustanova, zadeva, razlog, nujnost, datum_izdaje, datum_pregleda, status, opombe) 
+                                  VALUES (?, ?, ?, ?, ?, ?, ?, NOW(), ?, ?, ?)");
+    mysqli_stmt_bind_param($stmt, "iissssssss", $patient_id, $_SESSION['user_id'], $specialist, $ustanova, $zadeva, $reason, $nujnost, $datum_pregleda, $status, $notes);
     
-    header("Location: napotnice.php");
-    exit();
+    if (mysqli_stmt_execute($stmt)) {
+        header("Location: napotnice.php?success=1");
+        exit();
+    }
 }
 
-// Handle status update
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'update_status') {
-    $referral_id = $_POST['referral_id'];
-    $new_status = $_POST['status'];
-    
-    $sql = "UPDATE napotnice SET status = ? WHERE id = ? AND zdravnik_id = ?";
-    $stmt = $conn->prepare($sql);
-    $stmt->bind_param("sii", $new_status, $referral_id, $doctor_id);
-    $stmt->execute();
-    
-    header("Location: napotnice.php");
-    exit();
+$search_term = isset($_GET['search']) ? $_GET['search'] : '';
+$search_condition = '';
+if (!empty($search_term)) {
+    $search_term = "%$search_term%";
+    $search_condition = " AND (u.ime LIKE ? OR u.priimek LIKE ? OR n.specializacija LIKE ? OR n.razlog LIKE ?)";
 }
 
-// Get all referrals for this doctor
-$sql = "SELECT n.*, u.ime, u.priimek 
-        FROM napotnice n 
-        JOIN uporabniki u ON n.uporabnik_id = u.id 
-        WHERE n.zdravnik_id = ? 
-        ORDER BY n.datum_izdaje DESC";
-$stmt = $conn->prepare($sql);
-$stmt->bind_param("i", $doctor_id);
-$stmt->execute();
-$referrals = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+$patient_condition = '';
+if (isset($_GET['patient_id'])) {
+    $patient_condition = " AND n.uporabnik_id = ?";
+}
 
-// Get all patients for this doctor
+$query = "SELECT n.*, u.ime, u.priimek 
+          FROM napotnice n 
+          JOIN uporabniki u ON n.uporabnik_id = u.id 
+          WHERE n.zdravnik_id = ?" . $search_condition . $patient_condition . " 
+          ORDER BY n.datum_izdaje DESC";
+
+$stmt = mysqli_prepare($conn, $query);
+
+if (!empty($search_term) && isset($_GET['patient_id'])) {
+    mysqli_stmt_bind_param($stmt, "issssi", $_SESSION['user_id'], $search_term, $search_term, $search_term, $search_term, $_GET['patient_id']);
+} elseif (!empty($search_term)) {
+    mysqli_stmt_bind_param($stmt, "issss", $_SESSION['user_id'], $search_term, $search_term, $search_term, $search_term);
+} elseif (isset($_GET['patient_id'])) {
+    mysqli_stmt_bind_param($stmt, "ii", $_SESSION['user_id'], $_GET['patient_id']);
+} else {
+    mysqli_stmt_bind_param($stmt, "i", $_SESSION['user_id']);
+}
+
+mysqli_stmt_execute($stmt);
+$result = mysqli_stmt_get_result($stmt);
+$referrals = mysqli_fetch_all($result, MYSQLI_ASSOC);
+
+$patient_info = null;
+if (isset($_GET['patient_id'])) {
+    $sql = "SELECT ime, priimek FROM uporabniki WHERE id = ? AND zdravnik_id = ?";
+    $stmt = mysqli_prepare($conn, $sql);
+    mysqli_stmt_bind_param($stmt, "ii", $_GET['patient_id'], $doctor_id);
+    mysqli_stmt_execute($stmt);
+    $result = mysqli_stmt_get_result($stmt);
+    $patient_info = mysqli_fetch_assoc($result);
+}
+
 $sql = "SELECT id, ime, priimek FROM uporabniki WHERE zdravnik_id = ? ORDER BY priimek, ime";
-$stmt = $conn->prepare($sql);
-$stmt->bind_param("i", $doctor_id);
-$stmt->execute();
-$patients = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+$stmt = mysqli_prepare($conn, $sql);
+mysqli_stmt_bind_param($stmt, "i", $doctor_id);
+mysqli_stmt_execute($stmt);
+$result = mysqli_stmt_get_result($stmt);
+$patients = mysqli_fetch_all($result, MYSQLI_ASSOC);
 ?>
 <!DOCTYPE html>
 <html lang="sl">
@@ -76,153 +88,7 @@ $patients = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
     <meta charset="UTF-8">
     <title>Portal IRIS - Upravljanje napotnic</title>
     <link rel="stylesheet" href="../style.css">
-    <style>
-        .referral-list {
-            background-color: white;
-            border-radius: 8px;
-            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-            margin-top: 2rem;
-        }
-        
-        .referral-item {
-            padding: 1rem;
-            border-bottom: 1px solid #eee;
-        }
-        
-        .referral-item:last-child {
-            border-bottom: none;
-        }
-        
-        .referral-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 0.5rem;
-        }
-        
-        .referral-header h3 {
-            margin: 0;
-            color: #2c3e50;
-        }
-        
-        .referral-info {
-            color: #666;
-        }
-        
-        .referral-info p {
-            margin: 0.5rem 0;
-        }
-        
-        .status-badge {
-            display: inline-block;
-            padding: 0.25rem 0.5rem;
-            border-radius: 4px;
-            font-size: 0.9rem;
-            color: white;
-        }
-        
-        .status-novo { background-color: #3498db; }
-        .status-potrjeno { background-color: #2ecc71; }
-        .status-zavrnjeno { background-color: #e74c3c; }
-        
-        .btn {
-            padding: 0.5rem 1rem;
-            border-radius: 4px;
-            text-decoration: none;
-            color: white;
-            background-color: #3498db;
-            border: none;
-            cursor: pointer;
-            font-size: 0.9rem;
-        }
-        
-        .btn:hover {
-            background-color: #2980b9;
-        }
-        
-        .modal {
-            display: none;
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background-color: rgba(0, 0, 0, 0.5);
-        }
-        
-        .modal-content {
-            background-color: white;
-            position: fixed;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            padding: 2rem;
-            border-radius: 8px;
-            width: 80%;
-            max-width: 600px;
-            max-height: 90vh;
-            overflow-y: auto;
-        }
-        
-        .form-group {
-            margin-bottom: 1rem;
-        }
-        
-        .form-group label {
-            display: block;
-            margin-bottom: 0.5rem;
-            color: #2c3e50;
-        }
-        
-        .form-group input,
-        .form-group select,
-        .form-group textarea {
-            width: 100%;
-            padding: 0.5rem;
-            border: 1px solid #ddd;
-            border-radius: 4px;
-            font-size: 1rem;
-        }
-        
-        .form-group textarea {
-            height: 100px;
-            resize: vertical;
-        }
-        
-        .modal-buttons {
-            display: flex;
-            justify-content: flex-end;
-            gap: 1rem;
-            margin-top: 1rem;
-        }
-        
-        .search-box {
-            margin: 2rem 0;
-            display: flex;
-            gap: 1rem;
-        }
-        
-        .search-box input {
-            flex: 1;
-            padding: 0.75rem;
-            border: 1px solid #ddd;
-            border-radius: 4px;
-            font-size: 1rem;
-        }
-        
-        .search-box button {
-            padding: 0.75rem 1.5rem;
-            background-color: #3498db;
-            color: white;
-            border: none;
-            border-radius: 4px;
-            cursor: pointer;
-        }
-        
-        .search-box button:hover {
-            background-color: #2980b9;
-        }
-    </style>
+ 
 </head>
 <body>
     <div class="container">
@@ -234,112 +100,98 @@ $patients = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
                     <li><a href="pacienti.php">Pacienti</a></li>
                     <li><a href="recepti.php">Recepti</a></li>
                     <li><a href="napotnice.php">Napotnice</a></li>
-                    <li><a href="pogovori.php">Pogovori</a></li>
                     <li><a href="bolniske.php">Bolniške</a></li>
-                    <li><a href="../seja_izbris.php">Odjava</a></li>
                 </ul>
             </nav>
+            <div class="logout-link">
+                <a href="../seja_izbris.php">Odjava</a>
+            </div>
         </aside>
         
         <main class="content">
             <section class="hero">
                 <div class="user-info">
-                    <p>Prijavljeni ste kot: <strong><?php echo htmlspecialchars($doctor['ime'] . ' ' . $doctor['priimek']); ?></strong> (Zdravnik) | <a href="../seja_izbris.php">Odjava</a></p>
+                    <p>Prijavljeni ste kot: <strong><?php echo htmlspecialchars($_SESSION['user_name']); ?></strong> | <a href="../seja_izbris.php">Odjava</a></p>
                 </div>
-                <h2>Upravljanje napotnic</h2>
-                <p>Pregled in upravljanje z napotnicami za vaše paciente</p>
+                <h2>Napotnice</h2>
+                <p>Upravljanje napotnic za vaše paciente.</p>
             </section>
-            
-            <button class="btn" onclick="openModal()">Nova napotnica</button>
-            
+
             <div class="search-box">
-                <input type="text" id="searchInput" placeholder="Išči napotnice po specializaciji ali pacientu...">
-                <button onclick="searchReferrals()">Išči</button>
+                <form method="GET" action="">
+                    <input type="text" name="search" placeholder="Išči po pacientu..." value="<?php echo htmlspecialchars($search_term); ?>">
+                    <button type="submit">Išči</button>
+                </form>
+            </div>
+
+            <div class="button-group" style="margin-bottom: var(--spacing-lg);">
+                <button class="btn" onclick="window.location.href='?action=new'">Nova napotnica</button>
             </div>
             
             <div class="referral-list">
-                <?php foreach ($referrals as $referral): ?>
-                <div class="referral-item">
-                    <div class="referral-header">
-                        <h3>Napotnica za: <?php echo htmlspecialchars($referral['ime'] . ' ' . $referral['priimek']); ?></h3>
-                        <span class="status-badge status-<?php echo $referral['status']; ?>">
-                            <?php echo ucfirst($referral['status']); ?>
-                        </span>
+                <?php if (empty($referrals)): ?>
+                    <div class="no-referrals">
+                        <p>Ni najdenih napotnic.</p>
                     </div>
-                    <div class="referral-info">
-                        <p><strong>Zadeva:</strong> <?php echo htmlspecialchars($referral['zadeva']); ?></p>
-                        <p><strong>Specializacija:</strong> <?php echo htmlspecialchars($referral['specializacija']); ?></p>
-                        <p><strong>Ustanova:</strong> <?php echo htmlspecialchars($referral['ustanova']); ?></p>
-                        <p><strong>Nujnost:</strong> 
-                            <?php 
-                            switch($referral['nujnost']) {
-                                case 'nujno':
-                                    echo '<span style="color: #e74c3c;">Nujno</span>';
-                                    break;
-                                case 'obstojno':
-                                    echo '<span style="color: #f39c12;">Obstojno</span>';
-                                    break;
-                                case 'planirano':
-                                    echo '<span style="color: #27ae60;">Planirano</span>';
-                                    break;
-                            }
-                            ?>
-                        </p>
-                        <p><strong>Razlog:</strong> <?php echo htmlspecialchars($referral['razlog']); ?></p>
-                        <p><strong>Datum izdaje:</strong> <?php echo date('d.m.Y', strtotime($referral['datum_izdaje'])); ?></p>
-                        <p><strong>Datum pregleda:</strong> <?php echo date('d.m.Y', strtotime($referral['datum_pregleda'])); ?></p>
-                    </div>
-                    <div class="referral-actions">
-                        <form method="POST" action="napotnice.php" style="display: inline;">
-                            <input type="hidden" name="action" value="update_status">
-                            <input type="hidden" name="referral_id" value="<?php echo $referral['id']; ?>">
-                            <select name="status" onchange="this.form.submit()">
-                                <option value="novo" <?php echo $referral['status'] === 'novo' ? 'selected' : ''; ?>>Novo</option>
-                                <option value="potrjeno" <?php echo $referral['status'] === 'potrjeno' ? 'selected' : ''; ?>>Potrjeno</option>
-                                <option value="zavrnjeno" <?php echo $referral['status'] === 'zavrnjeno' ? 'selected' : ''; ?>>Zavrnjeno</option>
-                            </select>
-                        </form>
-                    </div>
-                </div>
-                <?php endforeach; ?>
+                <?php else: ?>
+                    <?php foreach ($referrals as $referral): ?>
+                        <div class="referral-item">
+                            <div class="referral-header">
+                                <h3>Napotnica za: <?php echo htmlspecialchars($referral['ime'] . ' ' . $referral['priimek']); ?></h3>
+                                <span class="referral-date">Izdano: <?php echo date('d.m.Y', strtotime($referral['datum_izdaje'])); ?></span>
+                            </div>
+                            <div class="referral-info">
+                                <p><strong>Specialist:</strong> <?php echo htmlspecialchars($referral['specializacija']); ?></p>
+                                <p><strong>Razlog:</strong> <?php echo htmlspecialchars($referral['razlog']); ?></p>
+                                <?php if (!empty($referral['opombe'])): ?>
+                                    <p><strong>Opombe:</strong> <?php echo htmlspecialchars($referral['opombe']); ?></p>
+                                <?php endif; ?>
+                            </div>
+                        </div>
+                    <?php endforeach; ?>
+                <?php endif; ?>
             </div>
         </main>
     </div>
     
-    <!-- Modal for creating new referral -->
-    <div id="referralModal" class="modal">
+    <?php if (isset($_GET['action']) && $_GET['action'] === 'new'): ?>
+    <div class="modal" style="display: block;">
         <div class="modal-content">
-            <h2>Nova napotnica</h2>
-            <form method="POST" action="napotnice.php">
-                <input type="hidden" name="action" value="create">
-                
+            <div class="modal-header">
+                <h3>Nova napotnica</h3>
+            </div>
+            <form method="POST" action="">
                 <div class="form-group">
                     <label for="patient_id">Pacient:</label>
                     <select name="patient_id" id="patient_id" required>
-                        <option value="">Izberite pacienta</option>
-                        <?php foreach ($patients as $patient): ?>
-                        <option value="<?php echo $patient['id']; ?>">
-                            <?php echo htmlspecialchars($patient['ime'] . ' ' . $patient['priimek']); ?>
-                        </option>
-                        <?php endforeach; ?>
+                        <?php
+                        $stmt = mysqli_prepare($conn, "SELECT id, ime, priimek FROM uporabniki WHERE vloga_id = 3 AND zdravnik_id = ? ORDER BY priimek, ime");
+                        mysqli_stmt_bind_param($stmt, "i", $doctor_id);
+                        mysqli_stmt_execute($stmt);
+                        $result = mysqli_stmt_get_result($stmt);
+                        $patients = mysqli_fetch_all($result, MYSQLI_ASSOC);
+                        foreach ($patients as $patient) {
+                            echo "<option value='{$patient['id']}'>{$patient['priimek']}, {$patient['ime']}</option>";
+                        }
+                        ?>
                     </select>
                 </div>
-                
                 <div class="form-group">
-                    <label for="specializacija">Specializacija:</label>
-                    <input type="text" name="specializacija" id="specializacija" required>
+                    <label for="specialist">Specializacija:</label>
+                    <input type="text" name="specialist" id="specialist" required>
                 </div>
-                
                 <div class="form-group">
                     <label for="ustanova">Ustanova:</label>
                     <input type="text" name="ustanova" id="ustanova" required>
                 </div>
-                
                 <div class="form-group">
                     <label for="zadeva">Zadeva:</label>
                     <input type="text" name="zadeva" id="zadeva" required>
                 </div>
-                
+                <div class="form-group">
+                    <label for="reason">Razlog:</label>
+                    <textarea name="reason" id="reason" required></textarea>
+                </div>
                 <div class="form-group">
                     <label for="nujnost">Nujnost:</label>
                     <select name="nujnost" id="nujnost" required>
@@ -348,64 +200,30 @@ $patients = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
                         <option value="planirano">Planirano</option>
                     </select>
                 </div>
-                
-                <div class="form-group">
-                    <label for="razlog">Razlog:</label>
-                    <textarea name="razlog" id="razlog" required></textarea>
-                </div>
-                
                 <div class="form-group">
                     <label for="datum_pregleda">Datum pregleda:</label>
                     <input type="date" name="datum_pregleda" id="datum_pregleda" required>
                 </div>
-                
-                <div class="modal-buttons">
-                    <button type="button" class="btn" onclick="closeModal()">Prekliči</button>
-                    <button type="submit" class="btn">Shrani</button>
+                <div class="form-group">
+                    <label for="status">Status:</label>
+                    <select name="status" id="status" required>
+                        <option value="pending">V čakanju</option>
+                        <option value="completed">Opravljeno</option>
+                        <option value="cancelled">Preklicano</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="notes">Opombe:</label>
+                    <textarea name="notes" id="notes"></textarea>
+                </div>
+                <div class="modal-actions">
+                    <a href="napotnice.php" class="btn btn-secondary">Prekliči</a>
+                    <button type="submit" name="create_referral" class="btn">Ustvari napotnico</button>
                 </div>
             </form>
         </div>
     </div>
-    
-    <script>
-        function openModal() {
-            document.getElementById('referralModal').style.display = 'block';
-        }
-        
-        function closeModal() {
-            document.getElementById('referralModal').style.display = 'none';
-        }
-        
-        function searchReferrals() {
-            const searchInput = document.getElementById('searchInput');
-            const searchTerm = searchInput.value.toLowerCase();
-            const referralItems = document.querySelectorAll('.referral-item');
-            
-            referralItems.forEach(item => {
-                const referralInfo = item.textContent.toLowerCase();
-                if (referralInfo.includes(searchTerm)) {
-                    item.style.display = 'block';
-                } else {
-                    item.style.display = 'none';
-                }
-            });
-        }
-        
-        // Add event listener for Enter key
-        document.getElementById('searchInput').addEventListener('keypress', function(e) {
-            if (e.key === 'Enter') {
-                searchReferrals();
-            }
-        });
-        
-        // Close modal when clicking outside
-        window.onclick = function(event) {
-            const modal = document.getElementById('referralModal');
-            if (event.target === modal) {
-                closeModal();
-            }
-        }
-    </script>
+    <?php endif; ?>
     <?php include '../footer.php'; ?>
 </body>
 </html> 

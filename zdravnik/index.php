@@ -1,47 +1,44 @@
 <?php
 session_start();
-if (!isset($_SESSION['user_id']) || $_SESSION['user_role'] !== 'zdravnik') {
-    header("Location: ../prijava.php");
-    exit();
-}
-
 include '../baza.php';
+$doctor_id = checkUserAuth('zdravnik');
 
-// Get doctor info
+
 $doctor_id = $_SESSION['user_id'];
 $sql = "SELECT * FROM uporabniki WHERE id = ?";
-$stmt = $conn->prepare($sql);
-$stmt->bind_param("i", $doctor_id);
-$stmt->execute();
-$doctor = $stmt->get_result()->fetch_assoc();
+$stmt = mysqli_prepare($conn, $sql);
+mysqli_stmt_bind_param($stmt, "i", $doctor_id);
+mysqli_stmt_execute($stmt);
+$result = mysqli_stmt_get_result($stmt);
+$doctor = mysqli_fetch_assoc($result);
 
-// Get total patients
 $sql = "SELECT COUNT(*) as total FROM uporabniki WHERE zdravnik_id = ?";
-$stmt = $conn->prepare($sql);
-$stmt->bind_param("i", $doctor_id);
-$stmt->execute();
-$total_patients = $stmt->get_result()->fetch_assoc()['total'];
+$stmt = mysqli_prepare($conn, $sql);
+mysqli_stmt_bind_param($stmt, "i", $doctor_id);
+mysqli_stmt_execute($stmt);
+$result = mysqli_stmt_get_result($stmt);
+$total_patients = mysqli_fetch_assoc($result)['total'];
 
-// Get total prescriptions
 $sql = "SELECT COUNT(*) as total FROM recepti WHERE zdravnik_id = ?";
-$stmt = $conn->prepare($sql);
-$stmt->bind_param("i", $doctor_id);
-$stmt->execute();
-$total_prescriptions = $stmt->get_result()->fetch_assoc()['total'];
+$stmt = mysqli_prepare($conn, $sql);
+mysqli_stmt_bind_param($stmt, "i", $doctor_id);
+mysqli_stmt_execute($stmt);
+$result = mysqli_stmt_get_result($stmt);
+$total_prescriptions = mysqli_fetch_assoc($result)['total'];
 
-// Get total referrals
 $sql = "SELECT COUNT(*) as total FROM napotnice WHERE zdravnik_id = ?";
-$stmt = $conn->prepare($sql);
-$stmt->bind_param("i", $doctor_id);
-$stmt->execute();
-$total_referrals = $stmt->get_result()->fetch_assoc()['total'];
+$stmt = mysqli_prepare($conn, $sql);
+mysqli_stmt_bind_param($stmt, "i", $doctor_id);
+mysqli_stmt_execute($stmt);
+$result = mysqli_stmt_get_result($stmt);
+$total_referrals = mysqli_fetch_assoc($result)['total'];
 
-// Get total sick leaves
 $sql = "SELECT COUNT(*) as total FROM bolniske WHERE zdravnik_id = ?";
-$stmt = $conn->prepare($sql);
-$stmt->bind_param("i", $doctor_id);
-$stmt->execute();
-$total_sick_leaves = $stmt->get_result()->fetch_assoc()['total'];
+$stmt = mysqli_prepare($conn, $sql);
+mysqli_stmt_bind_param($stmt, "i", $doctor_id);
+mysqli_stmt_execute($stmt);
+$result = mysqli_stmt_get_result($stmt);
+$total_sick_leaves = mysqli_fetch_assoc($result)['total'];
 ?>
 <!DOCTYPE html>
 <html lang="sl">
@@ -49,70 +46,7 @@ $total_sick_leaves = $stmt->get_result()->fetch_assoc()['total'];
     <meta charset="UTF-8">
     <title>Portal IRIS - Zdravnik Dashboard</title>
     <link rel="stylesheet" href="../style.css">
-    <style>
-        .doctor-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-            gap: 2rem;
-            margin-top: 2rem;
-        }
-        
-        .doctor-card {
-            background-color: white;
-            padding: 2rem;
-            border-radius: 8px;
-            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-        }
-        
-        .doctor-card h3 {
-            color: #2c3e50;
-            margin-bottom: 1rem;
-        }
-        
-        .doctor-card p {
-            color: #666;
-            margin-bottom: 1rem;
-        }
-        
-        .doctor-card .btn {
-            display: inline-block;
-            padding: 0.75rem 1.5rem;
-            background-color: #3498db;
-            color: white;
-            text-decoration: none;
-            border-radius: 4px;
-            transition: background-color 0.3s;
-        }
-        
-        .doctor-card .btn:hover {
-            background-color: #2980b9;
-        }
-        
-        .stats {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 1rem;
-            margin-top: 1rem;
-        }
-        
-        .stat-item {
-            background-color: #f8f9fa;
-            padding: 1rem;
-            border-radius: 4px;
-            text-align: center;
-        }
-        
-        .stat-item .number {
-            font-size: 2rem;
-            font-weight: bold;
-            color: #2c3e50;
-        }
-        
-        .stat-item .label {
-            color: #666;
-            margin-top: 0.5rem;
-        }
-    </style>
+  
 </head>
 <body>
     <div class="container">
@@ -124,11 +58,12 @@ $total_sick_leaves = $stmt->get_result()->fetch_assoc()['total'];
                     <li><a href="pacienti.php">Pacienti</a></li>
                     <li><a href="recepti.php">Recepti</a></li>
                     <li><a href="napotnice.php">Napotnice</a></li>
-                    <li><a href="pogovori.php">Pogovori</a></li>
                     <li><a href="bolniske.php">Bolniške</a></li>
-                    <li><a href="../seja_izbris.php">Odjava</a></li>
                 </ul>
             </nav>
+            <div class="logout-link">
+                <a href="../seja_izbris.php">Odjava</a>
+            </div>
         </aside>
         
         <main class="content">
